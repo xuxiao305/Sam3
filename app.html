@@ -1,0 +1,1004 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SAM3 分割工具</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1e1e1e;
+            color: #e0e0e0;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* 顶部工具栏 */
+        .toolbar {
+            background-color: #2d2d2d;
+            border-bottom: 1px solid #3d3d3d;
+            padding: 12px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .toolbar-left {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .toolbar-right {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-primary {
+            background-color: #0e639c;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background-color: #1177bb;
+        }
+
+        .btn-success {
+            background-color: #07a77d;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background-color: #0d9b6f;
+        }
+
+        .btn-danger {
+            background-color: #d44e4e;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background-color: #e85555;
+        }
+
+        .btn-small {
+            padding: 4px 8px;
+            font-size: 12px;
+        }
+
+        .btn-segment {
+            background-color: #27ae60;
+            color: white;
+            font-size: 14px;
+            padding: 10px 20px;
+        }
+
+        .btn-segment:hover {
+            background-color: #2ecc71;
+        }
+
+        .btn-segment:disabled {
+            background-color: #555;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        #fileInput {
+            display: none;
+        }
+
+        .status-text {
+            font-size: 12px;
+            color: #999;
+        }
+
+        /* 主容器 */
+        .main-container {
+            display: flex;
+            height: calc(100vh - 54px);
+            gap: 0;
+        }
+
+        /* 左侧面板 */
+        .left-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background-color: #252525;
+            border-right: 1px solid #3d3d3d;
+            overflow: hidden;
+        }
+
+        .canvas-container {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #1a1a1a;
+            position: relative;
+            overflow: hidden;
+        }
+
+        #canvas {
+            max-width: 100%;
+            max-height: 100%;
+            cursor: crosshair;
+            display: none;
+        }
+
+        #canvas.active {
+            display: block;
+        }
+
+        .placeholder {
+            text-align: center;
+            color: #666;
+            pointer-events: none;
+        }
+
+        .placeholder p {
+            margin: 10px 0;
+            font-size: 14px;
+        }
+
+        /* 提示管理面板 */
+        .prompt-panel {
+            background-color: #2d2d2d;
+            border-top: 1px solid #3d3d3d;
+            padding: 12px;
+            max-height: 220px;
+            overflow-y: auto;
+        }
+
+        .prompt-header {
+            font-weight: 600;
+            font-size: 13px;
+            margin-bottom: 10px;
+            color: #b0b0b0;
+            text-transform: uppercase;
+        }
+
+        .prompt-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 10px;
+        }
+
+        .prompt-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 10px;
+            background-color: #1e1e1e;
+            border-radius: 4px;
+            border: 1px solid #3d3d3d;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .prompt-item:hover {
+            background-color: #252525;
+            border-color: #4d4d4d;
+        }
+
+        .prompt-item.active {
+            border-color: #0e639c;
+            background-color: #1a2332;
+        }
+
+        .prompt-item-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex: 1;
+        }
+
+        .prompt-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 2px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .prompt-name {
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .prompt-count {
+            font-size: 11px;
+            color: #888;
+            margin-left: 6px;
+        }
+
+        .prompt-item-actions {
+            display: flex;
+            gap: 4px;
+        }
+
+        .prompt-item .btn-small {
+            background-color: #555;
+            color: #fff;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            padding: 3px 6px;
+            font-size: 11px;
+        }
+
+        .prompt-item .btn-small:hover {
+            background-color: #d44e4e;
+        }
+
+        .prompt-controls {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 8px;
+        }
+
+        .prompt-controls .btn {
+            flex: 1;
+            font-size: 12px;
+            padding: 6px 8px;
+        }
+
+        .add-prompt-btn {
+            width: 100%;
+            background-color: #333;
+            color: #07a77d;
+            border: 2px dashed #07a77d;
+            margin-top: 8px;
+            font-weight: 600;
+            font-size: 13px;
+        }
+
+        .add-prompt-btn:hover {
+            background-color: #3d3d3d;
+        }
+
+        /* 右侧面板 */
+        .right-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background-color: #252525;
+            overflow: hidden;
+        }
+
+        .preview-container {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #1a1a1a;
+            position: relative;
+            overflow: hidden;
+        }
+
+        #previewCanvas {
+            max-width: 100%;
+            max-height: 100%;
+            display: none;
+        }
+
+        #previewCanvas.active {
+            display: block;
+        }
+
+        .preview-placeholder {
+            text-align: center;
+            color: #666;
+        }
+
+        .preview-placeholder p {
+            margin: 10px 0;
+            font-size: 14px;
+        }
+
+        .stats-panel {
+            background-color: #2d2d2d;
+            border-top: 1px solid #3d3d3d;
+            padding: 12px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            font-size: 12px;
+        }
+
+        .stat-item {
+            background-color: #1e1e1e;
+            padding: 8px;
+            border-radius: 4px;
+            border-left: 3px solid #0e639c;
+        }
+
+        .stat-label {
+            color: #888;
+            font-size: 11px;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+
+        .stat-value {
+            font-size: 13px;
+            font-weight: 600;
+            color: #fff;
+        }
+
+        /* 消息提示 */
+        .message {
+            padding: 12px 16px;
+            margin: 8px;
+            border-radius: 4px;
+            display: none;
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1000;
+            max-width: 300px;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        .message.show {
+            display: block;
+        }
+
+        .message.info {
+            background-color: #0e639c;
+            color: white;
+        }
+
+        .message.success {
+            background-color: #07a77d;
+            color: white;
+        }
+
+        .message.error {
+            background-color: #d44e4e;
+            color: white;
+        }
+
+        .message.warning {
+            background-color: #d99e00;
+            color: white;
+        }
+
+        /* 指示上传区域 */
+        .upload-zone {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(14, 99, 156, 0.1);
+            border: 2px dashed #0e639c;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            font-size: 16px;
+            color: #0e639c;
+            pointer-events: none;
+            z-index: 100;
+        }
+
+        .canvas-container.drag-over .upload-zone {
+            display: flex;
+        }
+
+        /* 滚动条样式 */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #1e1e1e;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #444;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+
+        /* 响应式调整 */
+        @media (max-width: 1200px) {
+            .main-container {
+                flex-direction: column;
+            }
+
+            .left-panel {
+                flex: 0.5;
+                border-right: none;
+                border-bottom: 1px solid #3d3d3d;
+            }
+
+            .right-panel {
+                flex: 0.5;
+            }
+        }
+
+        #imageDimensions {
+            font-size: 11px;
+            color: #888;
+            margin-left: 12px;
+        }
+    </style>
+</head>
+<body>
+    <!-- 顶部工具栏 -->
+    <div class="toolbar">
+        <div class="toolbar-left">
+            <button class="btn btn-primary" id="uploadBtn">
+                📁 上传图像
+            </button>
+            <button class="btn btn-danger" id="clearPromptBtn">
+                清除提示
+            </button>
+            <button class="btn btn-danger" id="clearAllBtn">
+                清除全部
+            </button>
+            <span class="status-text">|</span>
+            <span class="status-text" id="modelStatus">✓ 模型已加载</span>
+            <span id="imageDimensions"></span>
+        </div>
+        <div class="toolbar-right">
+            <button class="btn btn-segment" id="segmentBtn" disabled>
+                🚀 开始切割
+            </button>
+        </div>
+    </div>
+
+    <!-- 主容器 -->
+    <div class="main-container">
+        <!-- 左侧面板 -->
+        <div class="left-panel">
+            <div class="canvas-container" id="canvasContainer">
+                <canvas id="canvas"></canvas>
+                <div class="upload-zone">📤 拖拽图像到此</div>
+                <div class="placeholder">
+                    <p>📷 点击上方「上传图像」</p>
+                    <p>或将图像拖拽到此区域</p>
+                </div>
+            </div>
+
+            <!-- 提示管理面板 -->
+            <div class="prompt-panel">
+                <div class="prompt-header">提示管理</div>
+                <div class="prompt-list" id="promptList"></div>
+                <div class="prompt-controls">
+                    <button class="btn btn-danger btn-small" id="clearPromptBtn2">
+                        清除当前提示
+                    </button>
+                </div>
+                <button class="btn add-prompt-btn" id="addPromptBtn">
+                    + 添加Prompt组
+                </button>
+            </div>
+        </div>
+
+        <!-- 右侧面板 -->
+        <div class="right-panel">
+            <div class="preview-container" id="previewContainer">
+                <canvas id="previewCanvas"></canvas>
+                <div class="preview-placeholder">
+                    <p>🎯 分割结果预览</p>
+                    <p>点击「开始切割」后显示</p>
+                </div>
+            </div>
+
+            <!-- 统计信息面板 -->
+            <div class="stats-panel">
+                <div class="stat-item">
+                    <div class="stat-label">📊 分割区域数</div>
+                    <div class="stat-value" id="regionCount">0</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">⏱️ 处理时间</div>
+                    <div class="stat-value" id="processingTime">-</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">📌 活跃提示</div>
+                    <div class="stat-value" id="activePromptCount">0/0</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">【confidence】</div>
+                    <div class="stat-value" id="confidence">-</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 消息提示 -->
+    <div class="message" id="message"></div>
+
+    <!-- 隐藏文件输入 -->
+    <input type="file" id="fileInput" accept="image/*">
+
+    <script>
+        // ==================== 数据管理 ====================
+        class SAM3UI {
+            constructor() {
+                this.canvas = document.getElementById('canvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.previewCanvas = document.getElementById('previewCanvas');
+                this.previewCtx = this.previewCanvas.getContext('2d');
+
+                this.currentImage = null;
+                this.prompts = []; // 提示组数组
+                this.activePromptIndex = 0;
+                this.pointRadius = 6;
+                this.segmentationResult = null;
+
+                // 颜色配置（6组）
+                this.promptColors = [
+                    '#ff00ff', // Magenta - Prompt 1
+                    '#ffff00', // Yellow - Prompt 2
+                    '#00ffff', // Cyan - Prompt 3
+                    '#ff6600', // Orange - Prompt 4
+                    '#00ff00', // Green - Prompt 5
+                    '#ff0099', // Pink - Prompt 6
+                ];
+
+                this.initEventListeners();
+            }
+
+            initEventListeners() {
+                // 上传按钮
+                document.getElementById('uploadBtn').addEventListener('click', () => {
+                    document.getElementById('fileInput').click();
+                });
+
+                // 文件输入
+                document.getElementById('fileInput').addEventListener('change', (e) => {
+                    this.handleImageUpload(e);
+                });
+
+                // 拖拽上传
+                const canvasContainer = document.getElementById('canvasContainer');
+                canvasContainer.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    canvasContainer.classList.add('drag-over');
+                });
+
+                canvasContainer.addEventListener('dragleave', () => {
+                    canvasContainer.classList.remove('drag-over');
+                });
+
+                canvasContainer.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    canvasContainer.classList.remove('drag-over');
+                    const file = e.dataTransfer.files[0];
+                    if (file && file.type.startsWith('image/')) {
+                        this.loadImageFile(file);
+                    }
+                });
+
+                // 画布交互
+                this.canvas.addEventListener('click', (e) => this.handleCanvasClick(e, true));
+                this.canvas.addEventListener('contextmenu', (e) => {
+                    e.preventDefault();
+                    this.handleCanvasClick(e, false);
+                });
+
+                // 按钮事件
+                document.getElementById('clearPromptBtn').addEventListener('click', () => this.clearCurrentPrompt());
+                document.getElementById('clearPromptBtn2').addEventListener('click', () => this.clearCurrentPrompt());
+                document.getElementById('clearAllBtn').addEventListener('click', () => this.clearAllPrompts());
+                document.getElementById('addPromptBtn').addEventListener('click', () => this.addPromptGroup());
+                document.getElementById('segmentBtn').addEventListener('click', () => this.segmentImage());
+            }
+
+            // ==================== 图像处理 ====================
+            handleImageUpload(e) {
+                const file = e.target.files[0];
+                if (file) {
+                    this.loadImageFile(file);
+                }
+            }
+
+            loadImageFile(file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        this.currentImage = img;
+                        this.prompts = []; // 重置提示
+                        this.addPromptGroup(); // 添加首个提示组
+                        this.redrawCanvas();
+                        this.updateDimensions();
+                        this.showMessage(`✓ 图像已加载: ${file.name}`, 'success');
+                        document.getElementById('segmentBtn').disabled = false;
+                    };
+                    img.src = e.target.result;
+                };
+                reader.readAsDataURL(file);
+            }
+
+            updateDimensions() {
+                if (this.currentImage) {
+                    const dims = `${this.currentImage.width} × ${this.currentImage.height}`;
+                    document.getElementById('imageDimensions').textContent = dims;
+                }
+            }
+
+            // ==================== 提示管理 ====================
+            addPromptGroup() {
+                if (this.prompts.length >= 6) {
+                    this.showMessage('⚠️ 最多只能添加6个Prompt组', 'warning');
+                    return;
+                }
+                const promptGroup = {
+                    id: this.prompts.length + 1,
+                    positive_points: [],
+                    negative_points: [],
+                    color: this.promptColors[this.prompts.length],
+                };
+                this.prompts.push(promptGroup);
+                this.activePromptIndex = this.prompts.length - 1;
+                this.renderPromptList();
+                this.updateStats();
+                this.showMessage(`✓ 已添加 Prompt ${promptGroup.id}`, 'success');
+            }
+
+            removePromptGroup(index) {
+                if (this.prompts.length <= 1) {
+                    this.showMessage('⚠️ 至少需要保留一个Prompt组', 'warning');
+                    return;
+                }
+                const removed = this.prompts.splice(index, 1)[0];
+                if (this.activePromptIndex >= this.prompts.length) {
+                    this.activePromptIndex = this.prompts.length - 1;
+                }
+                this.renderPromptList();
+                this.redrawCanvas();
+                this.showMessage(`✓ 已删除 Prompt ${removed.id}`, 'success');
+            }
+
+            clearCurrentPrompt() {
+                if (this.prompts.length === 0) return;
+                const prompt = this.prompts[this.activePromptIndex];
+                const count = prompt.positive_points.length + prompt.negative_points.length;
+                prompt.positive_points = [];
+                prompt.negative_points = [];
+                this.renderPromptList();
+                this.redrawCanvas();
+                this.showMessage(`✓ 已清除 Prompt ${prompt.id} 的 ${count} 个点`, 'success');
+                this.updateStats();
+            }
+
+            clearAllPrompts() {
+                this.prompts.forEach(p => {
+                    p.positive_points = [];
+                    p.negative_points = [];
+                });
+                this.renderPromptList();
+                this.redrawCanvas();
+                this.showMessage('✓ 已清除所有提示点', 'success');
+                this.updateStats();
+            }
+
+            renderPromptList() {
+                const list = document.getElementById('promptList');
+                list.innerHTML = '';
+
+                this.prompts.forEach((prompt, index) => {
+                    const item = document.createElement('div');
+                    item.className = `prompt-item ${index === this.activePromptIndex ? 'active' : ''}`;
+                    item.innerHTML = `
+                        <div class="prompt-item-info">
+                            <div class="prompt-color" style="background-color: ${prompt.color}"></div>
+                            <div class="prompt-name">Prompt ${prompt.id}</div>
+                            <div class="prompt-count">${prompt.positive_points.length}✓ ${prompt.negative_points.length}✗</div>
+                        </div>
+                        <div class="prompt-item-actions">
+                            <button class="btn-small" data-index="${index}" onclick="app.removePromptGroup(${index})">✕</button>
+                        </div>
+                    `;
+                    item.addEventListener('click', () => {
+                        this.activePromptIndex = index;
+                        this.renderPromptList();
+                        this.redrawCanvas();
+                    });
+                    list.appendChild(item);
+                });
+
+                this.updateStats();
+            }
+
+            // ==================== 画布交互 ====================
+            handleCanvasClick(e, isPositive) {
+                if (!this.currentImage || this.prompts.length === 0) {
+                    this.showMessage('⚠️ 请先上传图像', 'warning');
+                    return;
+                }
+
+                const rect = this.canvas.getBoundingClientRect();
+                const canvasX = e.clientX - rect.left;
+                const canvasY = e.clientY - rect.top;
+
+                // 转换到图像坐标
+                const scale = this.currentImage.width / (rect.width - (rect.width - this.canvas.width) / 1);
+                const imageX = canvasX * (this.currentImage.width / this.canvas.width);
+                const imageY = canvasY * (this.currentImage.height / this.canvas.height);
+
+                const prompt = this.prompts[this.activePromptIndex];
+                if (isPositive) {
+                    prompt.positive_points.push([Math.round(imageX), Math.round(imageY)]);
+                    this.showMessage(`✓ 正向点已添加`, 'info');
+                } else {
+                    prompt.negative_points.push([Math.round(imageX), Math.round(imageY)]);
+                    this.showMessage(`✓ 负向点已添加`, 'info');
+                }
+
+                this.renderPromptList();
+                this.redrawCanvas();
+                this.updateStats();
+            }
+
+            // ==================== 绘制 ====================
+            redrawCanvas() {
+                if (!this.currentImage) {
+                    this.canvas.style.display = 'none';
+                    return;
+                }
+
+                this.canvas.width = this.currentImage.width;
+                this.canvas.height = this.currentImage.height;
+                this.canvas.classList.add('active');
+
+                // 绘制原始图像
+                this.ctx.drawImage(this.currentImage, 0, 0);
+
+                // 绘制所有提示点
+                this.prompts.forEach((prompt, promptIndex) => {
+                    // 正向点（圆形）
+                    prompt.positive_points.forEach(point => {
+                        this.drawPoint(point[0], point[1], prompt.color, true);
+                    });
+
+                    // 负向点（×符号）
+                    prompt.negative_points.forEach(point => {
+                        this.drawPoint(point[0], point[1], prompt.color, false);
+                    });
+                });
+            }
+
+            drawPoint(x, y, color, isPositive) {
+                const r = this.pointRadius;
+                if (isPositive) {
+                    // 绘制圆形
+                    this.ctx.fillStyle = color;
+                    this.ctx.beginPath();
+                    this.ctx.arc(x, y, r, 0, Math.PI * 2);
+                    this.ctx.fill();
+                    this.ctx.strokeStyle = 'white';
+                    this.ctx.lineWidth = 2;
+                    this.ctx.stroke();
+                } else {
+                    // 绘制×符号
+                    this.ctx.strokeStyle = color;
+                    this.ctx.lineWidth = 3;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(x - r, y - r);
+                    this.ctx.lineTo(x + r, y + r);
+                    this.ctx.moveTo(x + r, y - r);
+                    this.ctx.lineTo(x - r, y + r);
+                    this.ctx.stroke();
+
+                    // 描边
+                    this.ctx.strokeStyle = 'white';
+                    this.ctx.lineWidth = 1;
+                    this.ctx.stroke();
+                }
+            }
+
+            // ==================== 分割处理 ====================
+            segmentImage() {
+                if (!this.currentImage) {
+                    this.showMessage('⚠️ 请先上传图像', 'warning');
+                    return;
+                }
+
+                const hasPoints = this.prompts.some(p => 
+                    p.positive_points.length > 0 || p.negative_points.length > 0
+                );
+
+                if (!hasPoints) {
+                    this.showMessage('⚠️ 请标记至少一个提示点', 'warning');
+                    return;
+                }
+
+                const startTime = performance.now();
+                document.getElementById('segmentBtn').disabled = true;
+                this.showMessage('⏳ 处理中...', 'info');
+
+                // 模拟处理（实际应调用后端接口）
+                setTimeout(() => {
+                    const endTime = performance.now();
+                    const processingTime = ((endTime - startTime) / 1000).toFixed(2);
+                    
+                    this.generateMockSegmentation();
+                    this.drawPreview();
+                    
+                    document.getElementById('processingTime').textContent = processingTime + 's';
+                    document.getElementById('segmentBtn').disabled = false;
+                    this.showMessage(`✓ 分割完成 (${processingTime}s)`, 'success');
+                    this.updateStats();
+                }, 1000);
+            }
+
+            generateMockSegmentation() {
+                // 模拟分割结果
+                const width = this.currentImage.width;
+                const height = this.currentImage.height;
+                const numRegions = Math.min(5, this.prompts.length * 2);
+                
+                this.segmentationResult = {
+                    regions: numRegions,
+                    mask: new Uint8ClampedArray(width * height),
+                    confidence: 0.92
+                };
+
+                // 模拟区域：根据提示点创建简单的分割结果
+                this.prompts.forEach((prompt, idx) => {
+                    if (prompt.positive_points.length > 0) {
+                        prompt.positive_points.forEach(point => {
+                            const radius = 100;
+                            for (let dy = -radius; dy < radius; dy++) {
+                                for (let dx = -radius; dx < radius; dx++) {
+                                    const px = point[0] + dx;
+                                    const py = point[1] + dy;
+                                    if (px >= 0 && px < width && py >= 0 && py < height) {
+                                        const dist = Math.sqrt(dx * dx + dy * dy);
+                                        if (dist < radius) {
+                                            const idx = py * width + px;
+                                            if (this.segmentationResult.mask[idx] === 0) {
+                                                this.segmentationResult.mask[idx] = idx % numRegions + 1;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                    }
+                });
+            }
+
+            drawPreview() {
+                if (!this.currentImage || !this.segmentationResult) return;
+
+                const width = this.currentImage.width;
+                const height = this.currentImage.height;
+
+                this.previewCanvas.width = width;
+                this.previewCanvas.height = height;
+                this.previewCanvas.classList.add('active');
+
+                // 绘制原始图像
+                this.previewCtx.drawImage(this.currentImage, 0, 0);
+
+                // 绘制分割掩码
+                const imageData = this.previewCtx.createImageData(width, height);
+                const data = imageData.data;
+
+                const colors = [
+                    [255, 0, 255, 100],    // Magenta
+                    [0, 255, 0, 100],      // Green
+                    [255, 255, 0, 100],    // Yellow
+                    [0, 255, 255, 100],    // Cyan
+                    [255, 100, 0, 100],    // Orange
+                ];
+
+                for (let i = 0; i < width * height; i++) {
+                    const regionId = this.segmentationResult.mask[i];
+                    if (regionId > 0) {
+                        const color = colors[(regionId - 1) % colors.length];
+                        data[i * 4] = color[0];
+                        data[i * 4 + 1] = color[1];
+                        data[i * 4 + 2] = color[2];
+                        data[i * 4 + 3] = color[3];
+                    }
+                }
+
+                this.previewCtx.putImageData(imageData, 0, 0);
+
+                // 绘制边界
+                this.previewCtx.strokeStyle = '#00ff00';
+                this.previewCtx.lineWidth = 2;
+                for (let i = 0; i < width * height; i++) {
+                    const current = this.segmentationResult.mask[i];
+                    if (current > 0) {
+                        const x = i % width;
+                        const y = Math.floor(i / width);
+                        
+                        if (x === 0 || y === 0 || x === width - 1 || y === height - 1) {
+                            continue;
+                        }
+
+                        const right = this.segmentationResult.mask[i + 1];
+                        const down = this.segmentationResult.mask[i + width];
+                        
+                        if (right !== current || down !== current) {
+                            this.previewCtx.beginPath();
+                            this.previewCtx.arc(x, y, 2, 0, Math.PI * 2);
+                            this.previewCtx.stroke();
+                        }
+                    }
+                }
+            }
+
+            // ==================== 统计信息 ====================
+            updateStats() {
+                const totalPoints = this.prompts.reduce((sum, p) => 
+                    sum + p.positive_points.length + p.negative_points.length, 0
+                );
+                const activePoints = this.prompts[this.activePromptIndex] ? 
+                    this.prompts[this.activePromptIndex].positive_points.length + 
+                    this.prompts[this.activePromptIndex].negative_points.length : 0;
+
+                document.getElementById('activePromptCount').textContent = 
+                    `${this.activePromptIndex + 1}/${this.prompts.length}`;
+                
+                if (this.segmentationResult) {
+                    document.getElementById('regionCount').textContent = 
+                        this.segmentationResult.regions;
+                    document.getElementById('confidence').textContent = 
+                        (this.segmentationResult.confidence * 100).toFixed(1) + '%';
+                }
+            }
+
+            // ==================== 消息提示 ====================
+            showMessage(text, type = 'info') {
+                const msg = document.getElementById('message');
+                msg.textContent = text;
+                msg.className = `message ${type} show`;
+                setTimeout(() => {
+                    msg.classList.remove('show');
+                }, 3000);
+            }
+        }
+
+        // ==================== 初始化 ====================
+        let app;
+        document.addEventListener('DOMContentLoaded', () => {
+            app = new SAM3UI();
+        });
+    </script>
+</body>
+</html>

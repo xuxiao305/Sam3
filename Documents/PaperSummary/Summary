@@ -1,0 +1,142 @@
+# SAM3: Segment Anything with Concepts — 技术笔记
+                   ┌──────────────────────────────┐
+                   │      Perception Encoder      │
+                   │  (Vision + Text + Exemplars) │
+                   └──────────────┬──────────────┘
+                                  │
+                    ┌─────────────┴─────────────┐
+                    │                           │
+        ┌───────────▼───────────┐     ┌────────▼────────┐
+        │       Detector         │     │      Tracker      │
+        │   (DETR-based PCS)     │     │   (SAM2-style)    │
+        └───────────┬───────────┘     └────────┬─────────┘
+                    │                           │
+        ┌───────────▼───────────┐     ┌────────▼────────┐
+        │  Boxes + Masks (img)   │     │   Masklets (vid) │
+        └────────────────────────┘     └──────────────────┘
+
+
+## 1. 核心目标
+SAM3 是一个统一模型，能够基于 **概念提示（Concept Prompts）** 在图像与视频中：
+- 检测（detect）
+- 分割（segment）
+- 跟踪（track）
+
+概念提示包括：
+- 文本短语（如 “yellow school bus”）
+- 图像 exemplar（正/负）
+- 文本 + exemplar 组合
+
+任务名称：**Promptable Concept Segmentation（PCS）**
+
+---
+
+## 2. SAM3 的主要贡献
+1. **提出 PCS 任务**：一次性找出所有符合概念的实例（图像 + 视频）。
+2. **新架构**：DETR 检测器 + SAM2 风格视频跟踪器，共享一个视觉 backbone。
+3. **Presence Token**：将“识别（what）”与“定位（where）”解耦，显著提升开放词汇检测能力。
+4. **超大规模数据引擎 SA‑Co**：
+   - 4M unique concepts
+   - 52M masks
+   - 467K 视频 masklets
+5. **在图像与视频的开放词汇分割上全面 SOTA**。
+
+---
+
+## 3. Promptable Concept Segmentation（PCS）
+输入：
+- 图像或 ≤30 秒视频
+- 文本短语（noun phrase）
+- exemplar（正/负）
+- 可选交互 refinement
+
+输出：
+- 所有实例的 mask
+- 视频中保持 ID 一致
+
+限制：
+- 文本必须是简单名词短语（避免复杂推理）
+- exemplar 用于补充或纠错
+
+---
+
+## 4. SAM3 模型架构
+
+### 4.1 Perception Encoder（PE）
+- 统一视觉 + 文本编码
+- 提供语义对齐的 embedding
+
+### 4.2 DETR-based Detector（图像级）
+输入：
+- 图像 embedding
+- 文本 token
+- exemplar token
+
+输出：
+- 所有实例的 box + mask
+
+关键创新：**Presence Token**
+- presence head：判断概念是否存在
+- object queries：只负责定位
+- 最终得分 = presence × object score
+
+### 4.3 SAM2-style Tracker（视频级）
+- masklet 跨帧传播
+- IoU 匹配
+- 遮挡恢复
+- 定期用检测器重置 tracker
+
+---
+
+## 5. 数据引擎 SA‑Co（Segment Anything with Concepts）
+四阶段：
+1. 人类验证（MV/EV）
+2. 人类 + AI 验证（Llama 3.2）
+3. 扩展到 15 个视觉 domain
+4. 扩展到视频（masklet）
+
+最终数据：
+- **SA‑Co/HQ**：5.2M 图像，4M 概念
+- **SA‑Co/SYN**：1.4B 合成 mask
+- **SA‑Co/VIDEO**：52.5K 视频
+- **SA‑Co Benchmark**：207K 概念 × 121K 图像/视频
+
+---
+
+## 6. 实验结果（高度提炼）
+### 图像 PCS（文本）
+- LVIS：AP 48.8（SOTA）
+- SA‑Co：cgF1 比 OWLv2 提升 2×+
+
+### 图像 PCS（exemplar）
+- COCO：AP+ +18.3
+- LVIS：AP+ +10.3
+
+### 视频 PCS
+- pHOTA 达到人类 80% 水平
+- 全面超过 GLEE、LLMDet
+
+### VOS（视频对象分割）
+- MOSEv2：+6.5 分
+- 全面超过 SAM2
+
+### 计数任务
+- MAE 0.12（优于 Gemini 2.5 Pro）
+
+---
+
+## 7. SAM3 的局限性
+- 对 out‑of‑domain 概念仍有困难
+- 长文本推理需 MLLM 辅助
+- 视频中大量对象时速度下降
+- 数据引擎成本高
+
+---
+
+## 8. 论文意义
+SAM3 是视觉分割领域的里程碑：
+- 首次统一图像 + 视频 + 文本概念分割
+- 首次实现开放词汇全实例分割
+- 构建史上最大开放词汇分割数据集
+- Presence Token 解决 DETR 识别/定位冲突
+- 可作为 MLLM 的视觉工具（SAM3Agent）

@@ -1,0 +1,44 @@
+# ==================================================================================
+# SAM3_Segment 虚拟环境配置
+# ==================================================================================
+# 🔗 环境类型: 符号链接指向 ComfyUI python_embeded
+# 📍 位置: D:\AI\Prototypes\SAM3_Segment\.venv -> D:\AI\ComfyUI-Easy-Install\python_embeded
+# 🐍 Python 版本: 3.12.10
+# 🔧 CUDA 版本: 12.8
+# 🎯 用途: 与 ComfyUI 完全一致的独立 SAM3 开发环境
+# ==================================================================================
+
+# 核心依赖 (来自 ComfyUI python_embeded)
+# 注意: 这个文件主要用于文档记录。实际环境已通过符号链接从 ComfyUI 继承
+# 如需完整列表，运行: .venv\Scripts\pip.exe freeze
+
+# PyTorch 2.8.0 + CUDA 12.8 支持
+torch==2.8.0+cu128
+torchvision==0.23.0+cu128
+torchaudio==2.8.0+cu128
+torch-stoi==0.2.3
+torchsde==0.2.6
+
+# 深度学习框架和模型
+transformers==4.57.3
+numpy==1.26.4
+einops
+safetensors>=0.4.2
+
+# 图像处理
+Pillow==12.0.0
+opencv-python==4.13.0.92
+scipy
+
+# SAM3 生态
+# sam-2 相关依赖已从 ComfyUI 继承
+# comfy-env==0.2.61
+# comfy-3d-viewers==0.2.41
+
+# 其他关键包已包含
+aiohttp>=3.11.8
+pyyaml
+pydantic~=2.0
+requests
+tqdm
+psutil
