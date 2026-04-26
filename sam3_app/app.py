@@ -6,7 +6,9 @@ Orchestrates SAM3 backend for interactive and text-based segmentation.
 """
 
 import logging
+import json
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -35,7 +37,7 @@ log = logging.getLogger("sam3_app")
 
 class SegmentWorker(QObject):
     """Run segmentation in a background thread."""
-    finished = pyqtSignal(list, list, np.ndarray, float)  # masks, scores, vis_image, time_s
+    finished = pyqtSignal(list, list, list, np.ndarray, float)  # masks, scores, boxes, vis_image, time_s
     error = pyqtSignal(str)
     progress = pyqtSignal(str)
 
@@ -48,19 +50,45 @@ class SegmentWorker(QObject):
         self.mode = mode
         self.text_prompt = text_prompt
 
+    @staticmethod
+    def _mask_to_bbox(mask: np.ndarray):
+        """Compute axis-aligned bounding box from a binary mask.
+        Returns [x1, y1, x2, y2] in pixel coords, or None if mask is empty."""
+        m = mask.squeeze() if mask.ndim > 2 else mask
+        rows = np.any(m, axis=1)
+        cols = np.any(m, axis=0)
+        if not rows.any():
+            return None
+        rmin, rmax = np.where(rows)[0][[0, -1]]
+        cmin, cmax = np.where(cols)[0][[0, -1]]
+        return [int(cmin), int(rmin), int(cmax), int(rmax)]
+
     def run(self):
         try:
             start = time.time()
+            boxes = []
             if self.mode == "text":
                 masks, scores, boxes, vis = self.backend.segment_text(
                     self.text_prompt, self.img_w, self.img_h,
                 )
+                # Normalize boxes to pixel coords if they're in normalized format
+                if boxes and isinstance(boxes, list) and len(boxes) > 0:
+                    if isinstance(boxes[0], list) and len(boxes[0]) == 4:
+                        first_val = boxes[0][0]
+                        if isinstance(first_val, (int, float)) and 0 <= first_val <= 1:
+                            boxes = [
+                                [b[0]*self.img_w, b[1]*self.img_h, b[2]*self.img_w, b[3]*self.img_h]
+                                for b in boxes
+                            ]
             else:
                 masks, scores, vis = self.backend.segment_interactive(
                     self.prompts, self.img_w, self.img_h,
                 )
+                # Compute bounding boxes from masks for interactive mode
+                boxes = [self._mask_to_bbox(m) for m in masks]
+
             elapsed = time.time() - start
-            self.finished.emit(masks, scores, vis, elapsed)
+            self.finished.emit(masks, scores, boxes, vis, elapsed)
         except Exception as e:
             log.exception("Segmentation failed")
             self.error.emit(str(e))
@@ -104,6 +132,7 @@ class SAM3App(QMainWindow):
         self.current_image_path: Optional[str] = None
         self.result_masks: list = []
         self.result_scores: list = []
+        self.result_boxes: list = []  # [[x1,y1,x2,y2], ...] pixel coords
         self.result_vis: Optional[np.ndarray] = None
         self.current_mode = "point"  # "point" or "text"
 
@@ -280,6 +309,7 @@ class SAM3App(QMainWindow):
         # Clear results
         self.result_masks = []
         self.result_scores = []
+        self.result_boxes = []
         self.result_vis = None
         self.preview.clear()
         self.canvas.set_mask_overlay(None)
@@ -381,12 +411,13 @@ class SAM3App(QMainWindow):
         self._segment_worker.error.connect(self._segment_thread.quit)
         self._segment_thread.start()
 
-    def _on_segment_done(self, masks, scores, vis_image, elapsed):
+    def _on_segment_done(self, masks, scores, boxes, vis_image, elapsed):
         self.toolbar.set_segmenting(False)
         self.progress_bar.hide()
 
         self.result_masks = masks
         self.result_scores = scores
+        self.result_boxes = boxes
         self.result_vis = vis_image
 
         # Update preview
@@ -495,19 +526,79 @@ class SAM3App(QMainWindow):
             self.status_bar.show_success(f"掩码已导出: {Path(file_path).name}")
 
     def _on_export_json(self):
-        if not self.current_image:
+        if self.current_image is None:
             self.status_bar.show_error("无数据可导出")
             return
 
-        h, w = self.current_image.shape[:2]
-        prompts = self.prompt_manager.to_sam3_format(w, h)
+        if not self.result_masks:
+            self.status_bar.show_error("请先执行分割再导出")
+            return
 
-        file_path, _ = QFileDialog.getSaveFileName(
-            self, "导出提示JSON", "prompts.json", "JSON (*.json)"
-        )
-        if file_path:
-            export_prompts_json(prompts, self.current_image_path, w, h, file_path)
-            self.status_bar.show_success(f"提示数据已导出: {Path(file_path).name}")
+        try:
+            h, w = self.current_image.shape[:2]
+
+            file_path, _ = QFileDialog.getSaveFileName(
+                self, "导出JSON", "segmentation.json", "JSON (*.json)"
+            )
+            if not file_path:
+                return
+
+            json_path = Path(file_path)
+            out_dir = json_path.parent
+            image_name = Path(self.current_image_path).name if self.current_image_path else ""
+            mask_filename = json_path.stem + "_mask.png"
+            mask_path = str(out_dir / mask_filename)
+
+            # Export combined mask PNG
+            import cv2
+            from PIL import Image as PILImage
+            n = len(self.result_masks)
+            combined = np.zeros((h, w), dtype=np.uint8)
+            mask_values = []
+            for i, mask in enumerate(self.result_masks):
+                m = mask.squeeze() if mask.ndim > 2 else mask
+                m = m.astype(np.uint8)  # ensure uint8 for cv2
+                if m.shape != (h, w):
+                    m_resized = cv2.resize(m, (w, h), interpolation=cv2.INTER_NEAREST)
+                    m_bool = m_resized > 0
+                else:
+                    m_bool = m > 0
+                val = 255 if n == 1 else int(255 * (i + 1) / n)
+                combined[m_bool] = val
+                mask_values.append(val)
+
+            PILImage.fromarray(combined, mode='L').save(mask_path)
+
+            # Build objects list
+            objects = []
+            for i in range(n):
+                # Label: use text prompt if available, else Region_N
+                if self.current_mode == "text":
+                    text = self.toolbar.text_input.text().strip()
+                    if text:
+                        parts = [p.strip() for p in text.split(',')]
+                        label = f"Object_{parts[i]}" if i < len(parts) else f"Object_{i+1}"
+                    else:
+                        label = f"Object_{i+1}"
+                else:
+                    label = f"Region_{i+1}"
+                objects.append({
+                    "label": label,
+                    "mask_value": mask_values[i],
+                })
+
+            export_data = {
+                "image": image_name,
+                "mask_png": mask_filename,
+                "objects": objects,
+            }
+
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(export_data, f, ensure_ascii=False, indent=2)
+            self.status_bar.show_success(f"JSON+Mask已导出: {json_path.name}, {mask_filename}")
+        except Exception as e:
+            log.exception("Export JSON failed")
+            self.status_bar.show_error(f"导出失败: {str(e)[:80]}")
 
     def _on_export_vis(self):
         if self.result_vis is None:

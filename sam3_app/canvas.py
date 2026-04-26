@@ -32,7 +32,8 @@ class ImageCanvas(QFrame):
         super().__init__()
         self.image: np.ndarray | None = None       # Original image (H, W, 3) RGB
         self.scaled_image: np.ndarray | None = None # Display-sized image
-        self.scale_factor: float = 1.0
+        self.scale_factor_x: float = 1.0
+        self.scale_factor_y: float = 1.0
         self.offset_x: int = 0
         self.offset_y: int = 0
         self.prompt_manager: PromptManager | None = None
@@ -71,29 +72,39 @@ class ImageCanvas(QFrame):
         if self.image is None:
             return
 
-        canvas_w = self.width()
-        canvas_h = self.height()
+        # Use contentsRect to exclude QFrame border/padding
+        rect = self.contentsRect()
+        canvas_w = rect.width()
+        canvas_h = rect.height()
         img_h, img_w = self.image.shape[:2]
 
         scale_w = canvas_w / img_w if img_w > 0 else 1
         scale_h = canvas_h / img_h if img_h > 0 else 1
-        self.scale_factor = min(scale_w, scale_h, 1.0)
+        base_scale = min(scale_w, scale_h, 1.0)
 
-        new_w = max(1, int(img_w * self.scale_factor))
-        new_h = max(1, int(img_h * self.scale_factor))
+        new_w = max(1, int(img_w * base_scale))
+        new_h = max(1, int(img_h * base_scale))
 
         import cv2
         self.scaled_image = cv2.resize(self.image, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
-        self.offset_x = (canvas_w - new_w) // 2
-        self.offset_y = (canvas_h - new_h) // 2
+        # Use actual pixel dimensions for precise scale factors
+        # (int() truncation makes img_w * base_scale != new_w, causing
+        # progressive drift toward the right/bottom edge)
+        self.scale_factor_x = new_w / img_w
+        self.scale_factor_y = new_h / img_h
+        self.scale_factor = base_scale  # kept for box-drawing compat
+
+        # Offset relative to contentsRect top-left
+        self.offset_x = (canvas_w - new_w) // 2 + rect.x()
+        self.offset_y = (canvas_h - new_h) // 2 + rect.y()
 
     def canvas_to_image(self, pos: QPoint) -> tuple[int, int] | None:
         """Convert canvas coordinates to image pixel coordinates. Returns None if outside image."""
         if self.image is None:
             return None
-        img_x = (pos.x() - self.offset_x) / self.scale_factor
-        img_y = (pos.y() - self.offset_y) / self.scale_factor
+        img_x = (pos.x() - self.offset_x) / self.scale_factor_x
+        img_y = (pos.y() - self.offset_y) / self.scale_factor_y
         img_h, img_w = self.image.shape[:2]
         ix, iy = int(img_x), int(img_y)
         if 0 <= ix < img_w and 0 <= iy < img_h:
@@ -153,8 +164,8 @@ class ImageCanvas(QFrame):
         import cv2
         overlay = self._mask_overlay
         h, w = overlay.shape[:2]
-        new_w = max(1, int(w * self.scale_factor))
-        new_h = max(1, int(h * self.scale_factor))
+        new_w = self.scaled_image.shape[1]
+        new_h = self.scaled_image.shape[0]
         scaled = cv2.resize(overlay, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
         q_image = QImage(scaled.data, new_w, new_h, 4 * new_w, QImage.Format.Format_RGBA8888)
@@ -168,8 +179,8 @@ class ImageCanvas(QFrame):
 
             # Draw positive points (filled circles with +)
             for (px, py) in region.positive_points:
-                cx = self.offset_x + px * self.scale_factor
-                cy = self.offset_y + py * self.scale_factor
+                cx = self.offset_x + px * self.scale_factor_x
+                cy = self.offset_y + py * self.scale_factor_y
                 r = 7 if is_active else 5
 
                 # White outline + colored fill
@@ -184,8 +195,8 @@ class ImageCanvas(QFrame):
 
             # Draw negative points (filled circles with ×)
             for (px, py) in region.negative_points:
-                cx = self.offset_x + px * self.scale_factor
-                cy = self.offset_y + py * self.scale_factor
+                cx = self.offset_x + px * self.scale_factor_x
+                cy = self.offset_y + py * self.scale_factor_y
                 r = 7 if is_active else 5
 
                 painter.setPen(QPen(QColor('white'), 2))
@@ -199,10 +210,10 @@ class ImageCanvas(QFrame):
 
             # Draw positive boxes (solid colored rectangles)
             for (x1, y1, x2, y2) in region.positive_boxes:
-                cx1 = self.offset_x + x1 * self.scale_factor
-                cy1 = self.offset_y + y1 * self.scale_factor
-                cx2 = self.offset_x + x2 * self.scale_factor
-                cy2 = self.offset_y + y2 * self.scale_factor
+                cx1 = self.offset_x + x1 * self.scale_factor_x
+                cy1 = self.offset_y + y1 * self.scale_factor_y
+                cx2 = self.offset_x + x2 * self.scale_factor_x
+                cy2 = self.offset_y + y2 * self.scale_factor_y
 
                 pen_width = 3 if is_active else 2
                 painter.setPen(QPen(color, pen_width))
@@ -215,10 +226,10 @@ class ImageCanvas(QFrame):
 
             # Draw negative boxes (dashed red rectangles)
             for (x1, y1, x2, y2) in region.negative_boxes:
-                cx1 = self.offset_x + x1 * self.scale_factor
-                cy1 = self.offset_y + y1 * self.scale_factor
-                cx2 = self.offset_x + x2 * self.scale_factor
-                cy2 = self.offset_y + y2 * self.scale_factor
+                cx1 = self.offset_x + x1 * self.scale_factor_x
+                cy1 = self.offset_y + y1 * self.scale_factor_y
+                cx2 = self.offset_x + x2 * self.scale_factor_x
+                cy2 = self.offset_y + y2 * self.scale_factor_y
 
                 painter.setPen(QPen(QColor('#ff3333'), 2, Qt.PenStyle.DashLine))
                 painter.setBrush(Qt.BrushStyle.NoBrush)
