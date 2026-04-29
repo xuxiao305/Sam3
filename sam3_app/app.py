@@ -118,7 +118,13 @@ class LoadWorker(QObject):
 class SAM3App(QMainWindow):
     """Main application window for SAM3 Segment Tool."""
 
-    def __init__(self):
+    def __init__(
+        self,
+        initial_image: Optional[str] = None,
+        export_dir: Optional[str] = None,
+        export_basename: Optional[str] = None,
+        auto_exit_on_export: bool = False,
+    ):
         super().__init__()
         self.setWindowTitle("SAM3 分割工具")
         self.setGeometry(80, 80, 1500, 900)
@@ -136,6 +142,17 @@ class SAM3App(QMainWindow):
         self.result_vis: Optional[np.ndarray] = None
         self.current_mode = "point"  # "point" or "text"
 
+        # Headless / bridge integration parameters (optional CLI flags).
+        # When `export_dir` is set, "导出 JSON" skips the file dialog and writes
+        # directly into that directory using `<export_basename>.json` and
+        # `<export_basename>_mask.png`. When `auto_exit_on_export` is True, the
+        # window closes itself once the export completes — the parent process
+        # (Vite dev server) then knows the user finished and reads the files.
+        self._export_dir: Optional[str] = export_dir
+        self._export_basename: Optional[str] = export_basename or "segmentation"
+        self._auto_exit_on_export: bool = bool(auto_exit_on_export)
+        self._initial_image: Optional[str] = initial_image
+
         # Workers
         self._segment_worker = None
         self._segment_thread = None
@@ -148,6 +165,14 @@ class SAM3App(QMainWindow):
 
         # Load model on startup
         self._start_model_load()
+
+        # If launched with --image, queue an automatic load *after* the event
+        # loop starts. We can't call _load_image() right here because the
+        # backend hasn't finished loading yet; instead defer to a 0-ms timer
+        # that runs once the window is shown.
+        if self._initial_image:
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(0, lambda: self._load_image(self._initial_image))
 
     def _build_ui(self):
         # Central widget
@@ -267,6 +292,21 @@ class SAM3App(QMainWindow):
             size_mb = self.backend.model_size_mb
             self.toolbar.set_model_status(True, f"({size_mb:.0f} MB)")
             self.status_bar.show_success(f"模型加载成功 ({size_mb:.0f} MB)")
+
+            # Bridge mode: an image may have been preloaded before the backend
+            # was ready. In that case `self.current_image` is set but the
+            # backbone features were skipped — extract them now so the user
+            # can immediately point/click without re-uploading.
+            if self.current_image is not None:
+                try:
+                    from PIL import Image as PILImage
+                    self.status_bar.show_message("提取图像特征中...", 0)
+                    QApplication.processEvents()
+                    self.backend.set_image(PILImage.fromarray(self.current_image))
+                    self.status_bar.show_success("特征提取完成")
+                except Exception as e:
+                    log.exception("Deferred feature extraction failed")
+                    self.status_bar.show_error(f"特征提取失败: {str(e)[:80]}")
         else:
             self.toolbar.set_model_status(False)
             self.status_bar.show_error("模型加载失败")
@@ -537,11 +577,18 @@ class SAM3App(QMainWindow):
         try:
             h, w = self.current_image.shape[:2]
 
-            file_path, _ = QFileDialog.getSaveFileName(
-                self, "导出JSON", "segmentation.json", "JSON (*.json)"
-            )
-            if not file_path:
-                return
+            # Headless / bridge mode: skip the save dialog when the parent
+            # process gave us a fixed export directory at startup.
+            if self._export_dir:
+                from pathlib import Path as _Path
+                _Path(self._export_dir).mkdir(parents=True, exist_ok=True)
+                file_path = str(_Path(self._export_dir) / f"{self._export_basename}.json")
+            else:
+                file_path, _ = QFileDialog.getSaveFileName(
+                    self, "导出JSON", "segmentation.json", "JSON (*.json)"
+                )
+                if not file_path:
+                    return
 
             json_path = Path(file_path)
             out_dir = json_path.parent
@@ -612,6 +659,13 @@ class SAM3App(QMainWindow):
             with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(export_data, f, ensure_ascii=False, indent=2)
             self.status_bar.show_success(f"JSON+Mask已导出: {json_path.name}, {mask_filename}")
+
+            # Bridge mode: parent process is waiting for the export to land,
+            # then expects the window to close itself.
+            if self._auto_exit_on_export:
+                from PyQt6.QtCore import QTimer
+                # Small delay so the user sees the "exported" toast briefly.
+                QTimer.singleShot(400, self.close)
         except Exception as e:
             log.exception("Export JSON failed")
             self.status_bar.show_error(f"导出失败: {str(e)[:80]}")

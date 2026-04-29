@@ -5,12 +5,20 @@ SAM3 Segment Tool — Entry Point
 Standalone PyQt6 application for SAM3 image segmentation.
 Supports point/box interactive prompts and text grounding.
 
-Usage:
+Usage (interactive):
     python sam3_app/main.py
     # or from SAM3_Segment root:
     python -m sam3_app.main
+
+Usage (bridge mode — called by ConceptToHighresModel Vite middleware):
+    python -m sam3_app.main \
+        --image  D:/path/to/source.png \
+        --export-dir  D:/path/to/output \
+        --export-basename segmentation \
+        --auto-exit-on-export
 """
 
+import argparse
 import logging
 import sys
 import os
@@ -32,6 +40,28 @@ log = logging.getLogger("sam3_app")
 
 
 def main():
+    # ─── Parse CLI flags ───────────────────────────────────────────────────
+    # Note: argparse runs BEFORE Qt so that --help works without spinning
+    # up the GPU/model load path.
+    parser = argparse.ArgumentParser(
+        prog="sam3_app",
+        description="SAM3 Segment Tool — interactive or bridge mode.",
+    )
+    parser.add_argument("--image", type=str, default=None,
+                        help="Optional absolute path to a source image to preload at startup.")
+    parser.add_argument("--export-dir", type=str, default=None,
+                        help="Bridge mode: directory where '导出 JSON' writes "
+                             "<basename>.json + <basename>_mask.png "
+                             "(skips the save dialog).")
+    parser.add_argument("--export-basename", type=str, default="segmentation",
+                        help="Bridge mode: basename for the exported files (default: segmentation).")
+    parser.add_argument("--auto-exit-on-export", action="store_true",
+                        help="Bridge mode: close the window after a successful export "
+                             "(parent process is waiting on the JSON to appear).")
+    # Tolerate unknown args so that double-clicking the .py from Explorer
+    # (which can pass weird stuff) still works.
+    args, _unknown = parser.parse_known_args()
+
     # ─── Install ComfyUI shims FIRST (before any SAM3 imports) ─────────────
     from sam3_app.comfy_shim import install_shims
     install_shims()
@@ -85,7 +115,12 @@ def main():
     # ─── Main Window ────────────────────────────────────────────────────────
     from sam3_app.app import SAM3App
 
-    window = SAM3App()
+    window = SAM3App(
+        initial_image=args.image,
+        export_dir=args.export_dir,
+        export_basename=args.export_basename,
+        auto_exit_on_export=args.auto_exit_on_export,
+    )
     window.show()
 
     log.info("SAM3 Segment Tool started")
