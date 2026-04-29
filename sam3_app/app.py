@@ -555,6 +555,7 @@ class SAM3App(QMainWindow):
             n = len(self.result_masks)
             combined = np.zeros((h, w), dtype=np.uint8)
             mask_values = []
+            bboxes = []
             for i, mask in enumerate(self.result_masks):
                 m = mask.squeeze() if mask.ndim > 2 else mask
                 m = m.astype(np.uint8)  # ensure uint8 for cv2
@@ -566,6 +567,20 @@ class SAM3App(QMainWindow):
                 val = 255 if n == 1 else int(255 * (i + 1) / n)
                 combined[m_bool] = val
                 mask_values.append(val)
+
+                # Compute bbox (xyxy) from mask; None if mask is empty
+                ys, xs = np.where(m_bool)
+                if xs.size > 0 and ys.size > 0:
+                    x_min = int(xs.min())
+                    y_min = int(ys.min())
+                    x_max = int(xs.max())
+                    y_max = int(ys.max())
+                    bboxes.append({
+                        "xyxy": [x_min, y_min, x_max, y_max],
+                        "xywh": [x_min, y_min, x_max - x_min + 1, y_max - y_min + 1],
+                    })
+                else:
+                    bboxes.append(None)
 
             PILImage.fromarray(combined, mode='L').save(mask_path)
 
@@ -585,6 +600,7 @@ class SAM3App(QMainWindow):
                 objects.append({
                     "label": label,
                     "mask_value": mask_values[i],
+                    "bbox": bboxes[i],
                 })
 
             export_data = {
